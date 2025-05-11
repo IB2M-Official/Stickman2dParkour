@@ -1,7 +1,9 @@
 🕹️ Jeu de Plateforme HTML5
   Jeu en 2D avec détection de collision, animations, mini-map, et deux modes :
-    🌱 Génération infinie avec seed **https://ib2m-official.github.io/Stickman2dParkour/infinite**
-    🛠️ Niveau custom défini dans levelData **https://ib2m-official.github.io/Stickman2dParkour/1customlevel**
+    🌱 Génération infinie avec seed :
+      **https://ib2m-official.github.io/Stickman2dParkour/infinite**
+    🛠️ Niveau custom défini dans levelData :
+      **https://ib2m-official.github.io/Stickman2dParkour/1customlevel**
 
 🚀 Fonctionnement
   🎮 Contrôles
@@ -23,7 +25,6 @@
   Dans le js :
     const levelData = [
     { x: 100, y: 600, width: 500, height: 15, color: '#888' },
-    { x: 500, y: 500, width: 200, height: 10, color: '#8f8' },
     ...
     { x: 1000, y: 350, width: 100, height: 10, color: '#88f', isEnd: true }
   ];
