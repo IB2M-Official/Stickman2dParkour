@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Jeu Parkour 2D Stickman</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #222;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #333;
+      border: 2px solid #fff;
+    }
+    #controls {
+      text-align: center;
+      margin: 10px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  <button onclick="startNewGame()">Nouvelle Partie</button>
+  <button onclick="respawn()">Respawn</button>
+</div>
+
+<canvas id="gameCanvas" width="1000" height="700"></canvas>
+<canvas id="miniMapX" width="300" height="20" style="position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: #111; border: 1px solid #fff;"></canvas>
+<canvas id="miniMapY" width="20" height="300" style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); background: #111; border: 1px solid #fff;"></canvas>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  const frameWidth = 3202 / 25;
+  const frameHeight = 2860 / 22;
+  
+  const spriteSheet = new Image();
+  spriteSheet.src = 'sprite2.png';
+  
+  const miniMapX = document.getElementById('miniMapX').getContext('2d');
+  const miniMapY = document.getElementById('miniMapY').getContext('2d');
+  
+  function drawMiniMaps() {
+  miniMapX.clearRect(0, 0, 300, 20);
+  miniMapY.clearRect(0, 0, 20, 300);
+
+  const endPlatform = levelData.find(p => p.isEnd);
+  if (!endPlatform) return;
+
+  const maxX = endPlatform.x;
+  const maxY = endPlatform.y;
+
+  // Calcul de la progression en position absolue
+  const progressX = Math.min(player.x / maxX, 1);
+  const progressY = Math.min(player.y / maxY, 1);
+
+  // Mini map horizontale
+  miniMapX.fillStyle = '#555';
+  miniMapX.fillRect(0, 0, 300 * progressX, 20);
+  miniMapX.fillStyle = '#ff0';
+  miniMapX.fillRect(300 * progressX - 2, 0, 4, 20);
+
+  // Mini map verticale (inversée car Y augmente vers le bas)
+  miniMapY.fillStyle = '#555';
+  miniMapY.fillRect(0, 300 * progressY, 20, 300 * (1 - progressY));
+  miniMapY.fillStyle = '#0ff';
+  miniMapY.fillRect(0, 300 * progressY - 2, 20, 4);
+}
+
+
+  
+  const animationList = {
+    idle: { line: 11, frames: 8 },
+    walkRight: { line: 2, frames: 6 },
+    walkLeft: { line: 0, frames: 6 },
+    crouch: { line: 12, frames: 4 },
+    jump: { line: 21, frames: 15 },
+  };
+  
+  const player = {
+    x: 400, y: 500,
+    width: frameWidth - 115, height: frameHeight - 100,
+    speed: 1.5, velY: 0, gravity: 0.1, jumpForce: 7,
+    isJumping: false,
+    frameX: 0, frameY: animationList.idle.line, frameMax: animationList.idle.frames,
+    frameDelay: 10, delayCounter: 0
+  };
+  
+  let keys = {};
+  document.addEventListener('keydown', e => keys[e.code] = true);
+  document.addEventListener('keyup', e => keys[e.code] = false);
+  
+  let platforms = [];
+  let worldOffsetX = 0, worldOffsetY = 0;
+  
+  // --- NOUVEAU --- Level avec rotations
+  const levelData = [
+    { x: 100, y: 600, width: 500, height: 15, color: '#888', rotation: 0 },
+
+    { x: 600, y: 575, width: 200, height: 10, color: '#a45', rotation: -0.2 },
+    { x: 785, y: 590, width: 150, height: 10, color: '#a45', rotation: 0.5 },
+    { x: 600, y: 400, width: 200, height: 10, color: '#a45', rotation: -0.2 },
+    { x: 785, y: 425, width: 150, height: 10, color: '#a45', rotation: 0.5 },
+    { x: 650, y: 300, width: 200, height: 10, color: '#a45', rotation: -0.2 },
+    { x: 835, y: 320, width: 150, height: 10, color: '#a45', rotation: 0.5 },
+
+
+    { x: 1010, y: 380, width: 500, height: 15, color: '#888', rotation: 0.1 },
+
+    { x: 1500, y: 300, width: 200, height: 10, color: '#8f8', rotation: -0.3 },
+    { x: 1650, y: 200, width: 200, height: 10, color: '#8f8', rotation: -0.7 },
+    { x: 1800, y: 100, width: 200, height: 10, color: '#8f8', rotation: -1 },
+
+    { x: 2000, y: 50, width: 150, height: 10, color: '#f88', rotation: 0 },
+    { x: 2100, y: 200, width: 500, height: 15, color: '#888', rotation: -0.3 },
+    { x: 2500, y: 300, width: 200, height: 10, color: '#8f8', rotation: 1 },
+
+    { x: 2400, y: 400, width: 200, height: 10, color: '#8f8', rotation: -0.5 },
+    { x: 2200, y: 500, width: 200, height: 10, color: '#8f8', rotation: 0 },
+
+
+    { x: 2700, y: 400, width: 150, height: 10, color: '#f88', rotation: -0.3 },
+    { x: 2400, y: 600, width: 100, height: 10, color: '#88f', rotation: 0, isEnd: true },
+  ];
+  
+  function loadLevel() {
+    platforms = [];
+    levelData.forEach(p => {
+      platforms.push({ ...p });
+    });
+  }
+  
+  function setAnimation(name) {
+    const anim = animationList[name];
+    if (anim && (player.frameY !== anim.line)) {
+      player.frameY = anim.line;
+      player.frameMax = anim.frames;
+      player.frameX = 0;
+    }
+  }
+  
+  function startNewGame() {
+    alert('Level terminé !');
+    respawn();
+  }
+  
+  // --- Fonction pour vérifier collision avec plateformes inclinées ---
+  function isColliding(player, platform) {
+    const cos = Math.cos(platform.rotation || 0);
+    const sin = Math.sin(platform.rotation || 0);
+  
+    // Centre du joueur
+    const dx = player.x - (platform.x + platform.width/2);
+    const dy = player.y - (platform.y + platform.height/2);
+  
+    // Applique la rotation inverse
+    const rx = dx * cos + dy * sin;
+    const ry = dy * cos - dx * sin;
+  
+    // Test collision avec AABB "non tourné"
+    return (
+      rx > -platform.width/2 - player.width/2 &&
+      rx < platform.width/2 + player.width/2 &&
+      ry > -platform.height/2 - player.height/2 &&
+      ry < platform.height/2 + player.height/2
+    );
+  }
+  
+  function update() {
+    let moving = false;
+  
+    if (keys['ArrowRight']) { player.x += player.speed; setAnimation('walkRight'); moving = true; }
+    if (keys['ArrowLeft']) { player.x -= player.speed; setAnimation('walkLeft'); moving = true; }
+    if (keys['ArrowDown']) { setAnimation('crouch'); moving = true; }
+    if (keys['Space'] && !player.isJumping) {
+      player.velY = -player.jumpForce;
+      player.isJumping = true;
+      setAnimation('jump');
+      moving = true;
+    }
+  
+    player.y += player.velY;
+    player.velY += player.gravity;
+  
+    let onGround = false;
+  
+    platforms.forEach(p => {
+      if (isColliding(player, p)) {
+        const cos = Math.cos(p.rotation || 0);
+        const sin = Math.sin(p.rotation || 0);
+  
+        const dx = player.x - (p.x + p.width/2);
+        const dy = player.y - (p.y + p.height/2);
+  
+        const rx = dx * cos + dy * sin;
+        const ry = dy * cos - dx * sin;
+  
+        // Si on tombe dessus
+        if (player.velY >= 0 && ry - player.velY <= -p.height/2) {
+          player.y = (p.y + p.height/2) + (rx * sin) - (p.height/2 * cos) - player.height/2;
+          player.velY = 0;
+          player.isJumping = false;
+          onGround = true;
+          if (p.isEnd) startNewGame();
+        }
+        // Si on tape par en dessous
+        else if (player.velY < 0 && ry - player.velY >= p.height/2) {
+          player.y = (p.y + p.height/2) + (rx * sin) + (p.height/2 * cos) + player.height/2;
+          player.velY = 0;
+        }
+      }
+    });
+  
+    if (!onGround) player.isJumping = true;
+  
+    if (!moving && !player.isJumping) setAnimation('idle');
+  
+    player.delayCounter++;
+    if (player.delayCounter >= player.frameDelay) {
+      player.frameX = (player.frameX + 1) % player.frameMax;
+      player.delayCounter = 0;
+    }
+  
+    worldOffsetX = player.x - canvas.width/2;
+    worldOffsetY = player.y - canvas.height/2;
+  }
+  
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(-worldOffsetX, -worldOffsetY);
+  
+    platforms.forEach(p => {
+      ctx.save();
+      ctx.translate(p.x + p.width/2, p.y + p.height/2);
+      ctx.rotate(p.rotation || 0);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.width/2, -p.height/2, p.width, p.height);
+      ctx.restore();
+    });
+  
+    ctx.drawImage(
+      spriteSheet,
+      player.frameX * frameWidth, player.frameY * frameHeight,
+      frameWidth, frameHeight,
+      player.x - frameWidth/2, player.y - frameHeight/2,
+      frameWidth, frameHeight
+    );
+  
+    ctx.restore();
+  }
+  
+  function loop() {
+    update();
+    draw();
+    drawMiniMaps();
+    requestAnimationFrame(loop);
+  }
+  
+  function respawn() {
+    player.x = 400;
+    player.y = 500;
+    player.velY = 0;
+    player.isJumping = false;
+    loadLevel();
+  }
+  
+  spriteSheet.onload = () => {
+    respawn();
+    loop();
+  };
+  </script>
+  
+  

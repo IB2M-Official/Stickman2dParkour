@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Jeu Parkour 2D Stickman</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #222;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #333;
+      border: 2px solid #fff;
+    }
+    #controls {
+      text-align: center;
+      margin: 10px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  Seed : <input id="seedInput" type="number" value="12345" style="width:80px;">
+  <button onclick="startNewGame()">Nouvelle seed</button>
+  <button onclick="respawn()">Respawn</button>
+</div>
+
+<canvas id="gameCanvas" width="1000" height="700"></canvas>
+<canvas id="miniMapX" width="300" height="20" style="position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: #111; border: 1px solid #fff;"></canvas>
+<canvas id="miniMapY" width="20" height="300" style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); background: #111; border: 1px solid #fff;"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const frameWidth = 3202 / 25;
+const frameHeight = 2860 / 22;
+
+const spriteSheet = new Image();
+spriteSheet.src = 'sprite2.png';
+
+const miniMapX = document.getElementById('miniMapX').getContext('2d');
+const miniMapY = document.getElementById('miniMapY').getContext('2d');
+
+function drawMiniMaps() {
+  miniMapX.clearRect(0, 0, 300, 20);
+  miniMapX.fillStyle = '#555';
+  const progressX = (player.x + worldOffsetX) / 10000;
+  miniMapX.fillRect(0, 0, 300 * progressX, 20);
+  miniMapX.fillStyle = '#ff0';
+  miniMapX.fillRect(300 * progressX - 2, 0, 4, 20);
+
+  miniMapY.clearRect(0, 0, 20, 300);
+  miniMapY.fillStyle = '#555';
+  const progressY = 1 - (player.y + worldOffsetY) / 2000;
+  miniMapY.fillRect(0, 300 * progressY, 20, 300 * (1 - progressY));
+  miniMapY.fillStyle = '#0ff';
+  miniMapY.fillRect(0, 300 * progressY - 2, 20, 4);
+}
+
+const animationList = {
+  idle: { line: 11, frames: 8 },
+  walkRight: { line: 2, frames: 6 },
+  walkLeft: { line: 0, frames: 6 },
+  crouch: { line: 12, frames: 4 },
+  jump: { line: 21, frames: 15 },
+};
+
+const player = {
+  x: 400, y: 500,
+  width: frameWidth -115, height: frameHeight -100,
+  speed: 1.5, velY: 0, gravity: 0.1, jumpForce: 7,
+  isJumping: false,
+  frameX: 0, frameY: animationList.idle.line, frameMax: animationList.idle.frames,
+  frameDelay: 10, delayCounter: 0
+};
+
+let keys = {};
+document.addEventListener('keydown', e => keys[e.code] = true);
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+let seed = 12345;
+function seededRandom() {
+  const x = Math.sin(seed++) * 10000;
+  return x - Math.floor(x);
+}
+
+let platforms = [];
+let worldOffsetX = 0, worldOffsetY = 0;
+
+function addPlatform(x, y, width, height, color, isEnd=false, type='solid') {
+  platforms.push({ x, y, width, height, color, isEnd, type });
+}
+
+function generatePlatformsIfNeeded() {
+  let maxX = platforms.length ? Math.max(...platforms.map(p => p.x + p.width)) : 0;
+  let maxY = platforms.length ? Math.min(...platforms.map(p => p.y)) : 800;
+  const progression = (player.x + worldOffsetX) / 10000;
+  const margin = 25 - progression * 20;
+  const effectiveMargin = Math.max(margin, 5);
+
+  while (maxX < player.x + worldOffsetX + 1500) {
+    const platWidth = 20 + seededRandom() * 100;
+    const platX = maxX + 80 + seededRandom() * 120;
+    const maxJumpHeight = (player.jumpForce ** 2) / (2 * player.gravity);
+    const platY = maxY - (seededRandom() - 0.5) * (maxJumpHeight - effectiveMargin);
+    const colors = ['#0f0', '#f0f', '#ff0', '#0ff'];
+    const color = colors[Math.floor(seededRandom() * colors.length)];
+    const isEnd = (platX > 9500);
+    addPlatform(platX, platY, platWidth, 5, isEnd ? '#f00' : color);
+
+    // Ajouter des murs verticaux occasionnellement
+    if (seededRandom() < 0.5) {
+      const wallHeight = 60 + seededRandom() * 200;
+      const wallX = platX + 50 + seededRandom() * 100;
+      addPlatform(wallX, platY - wallHeight, 10, wallHeight, '#0cf', false, 'vertical');
+    }
+
+    maxX = platX + platWidth;
+    maxY = platY;
+  }
+}
+
+function startNewGame() {
+  seed = parseInt(document.getElementById('seedInput').value) || Math.floor(Math.random() * 100000);
+  document.getElementById('seedInput').value = seed;
+  platforms = [];
+  worldOffsetX = 0;
+  worldOffsetY = 0;
+  respawn();
+}
+
+function respawn() {
+  player.x = 400;
+  player.y = 500;
+  player.velY = 0;
+  player.isJumping = false;
+  platforms = [];
+  addPlatform(100, 800, 1000, 20, '#888');
+  generatePlatformsIfNeeded();
+}
+
+function setAnimation(name) {
+  const anim = animationList[name];
+  if (anim && (player.frameY !== anim.line)) {
+    player.frameY = anim.line;
+    player.frameMax = anim.frames;
+    player.frameX = 0;
+  }
+}
+
+function update() {
+  let moving = false;
+  if (keys['ArrowRight']) { player.x += player.speed; setAnimation('walkRight'); moving = true; }
+  if (keys['ArrowLeft']) { player.x -= player.speed; setAnimation('walkLeft'); moving = true; }
+  if (keys['ArrowDown']) { setAnimation('crouch'); moving = true; }
+  if (keys['Space'] && !player.isJumping) {
+    player.velY = -player.jumpForce;
+    player.isJumping = true;
+    setAnimation('jump');
+    moving = true;
+  }
+
+  player.y += player.velY;
+  player.velY += player.gravity;
+
+  platforms.forEach(p => {
+    if (player.x + player.width/2 > p.x &&
+        player.x - player.width/2 < p.x + p.width &&
+        player.y + player.height/2 > p.y &&
+        player.y - player.height/2 < p.y + p.height) {
+
+      // Par le haut
+      if (player.velY >= 0 && player.y + player.height/2 - player.velY <= p.y) {
+        player.y = p.y - player.height/2;
+        player.velY = 0;
+        player.isJumping = false;
+        if (p.isEnd) startNewGame();
+      }
+      // Par le bas
+      else if (player.velY < 0 && player.y - player.height/2 - player.velY >= p.y + p.height) {
+        player.y = p.y + p.height + player.height/2;
+        player.velY = 0;
+      }
+      // Par la droite
+      else if (player.x < p.x) {
+        player.x = p.x - player.width/2;
+      }
+      // Par la gauche
+      else if (player.x > p.x + p.width) {
+        player.x = p.x + p.width + player.width/2;
+      }
+    }
+  });
+
+  if (!moving && !player.isJumping) setAnimation('idle');
+
+  player.delayCounter++;
+  if (player.delayCounter >= player.frameDelay) {
+    player.frameX = (player.frameX + 1) % player.frameMax;
+    player.delayCounter = 0;
+  }
+
+  generatePlatformsIfNeeded();
+  worldOffsetX = player.x - canvas.width/2;
+  worldOffsetY = player.y - canvas.height/2;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(-worldOffsetX, -worldOffsetY);
+  platforms.forEach(p => {
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.width, p.height);
+  });
+  ctx.drawImage(spriteSheet, player.frameX*frameWidth, player.frameY*frameHeight, frameWidth, frameHeight, player.x-frameWidth/2, player.y-frameHeight/2, frameWidth, frameHeight);
+  ctx.restore();
+  ctx.fillStyle = "#fff";
+  ctx.font = "16px sans-serif";
+  ctx.fillText("Seed : " + seed, 10, 20);
+}
+
+function loop() {
+  update();
+  draw();
+  drawMiniMaps();
+  requestAnimationFrame(loop);
+}
+
+spriteSheet.onload = () => {
+  startNewGame();
+  loop();
+};
+</script>
+
+</body>
+</html>
